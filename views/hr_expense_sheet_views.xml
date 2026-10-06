@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="view_hr_expense_sheet_form_inherit_misc_journal" model="ir.ui.view">
+        <field name="name">hr.expense.sheet.form.inherit.misc.journal</field>
+        <field name="model">hr.expense.sheet</field>
+        <field name="inherit_id" ref="hr_expense.view_hr_expense_sheet_form"/>
+        <field name="arch" type="xml">
+            <!-- Corrected spelling: employee_journal_id -->
+            <xpath expr="//field[@name='employee_journal_id']" position="attributes">
+                <attribute name="domain">[('type', 'in', ['purchase', 'general'])]</attribute>
+            </xpath>
+        </field>
+    </record>
+</odoo>

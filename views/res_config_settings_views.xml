@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<odoo>
+    <!-- Expenses settings page -->
+    <record id="res_config_settings_view_form_power_custom_expense" model="ir.ui.view">
+        <field name="name">res.config.settings.view.form.power.custom.expense</field>
+        <field name="model">res.config.settings</field>
+        <field name="inherit_id" ref="hr_expense.res_config_settings_view_form"/>
+        <field name="arch" type="xml">
+            <xpath expr="//app[@name='hr_expense']" position="inside">
+                <block title="Manager Approval Flow" id="power_custom_approval_settings_expense">
+                    <setting id="manager_approval_setting_expense"
+                             string="Enable Manager Approval"
+                             help="Require a manager to approve expenses">
+                        <field name="manager_approval"/>
+                        <div class="content-group" invisible="not manager_approval">
+                            <div class="mt16">
+                                <label for="manager_id" string="Select Manager" class="o_light_label"/>
+                                <field name="manager_id" class="oe_inline"/>
+                            </div>
+                        </div>
+                    </setting>
+                </block>
+            </xpath>
+        </field>
+    </record>
+</odoo>
