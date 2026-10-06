@@ -5,10 +5,49 @@
         <field name="model">hr.expense.sheet</field>
         <field name="inherit_id" ref="hr_expense.view_hr_expense_sheet_form"/>
         <field name="arch" type="xml">
-            <!-- Corrected spelling: employee_journal_id -->
-            <xpath expr="//field[@name='employee_journal_id']" position="attributes">
-                <attribute name="domain">[('type', 'in', ['general'])]</attribute>
+
+            <!-- 1. Fix the Smart Button Visibility -->
+            <xpath expr="//button[@name='action_open_account_moves']" position="attributes">
+                <attribute name="invisible">state not in ['approve', 'manager_approved', 'post', 'done'] or nb_account_move == 0</attribute>
             </xpath>
+
+            <!-- 2. Inject the boolean fields invisibly -->
+            <xpath expr="//field[@name='state'][1]" position="before">
+                <field name="manager_approval_enabled" invisible="1"/>
+                <!-- NEW: Inject the visibility toggle -->
+                <field name="is_manager_approver" invisible="1"/>
+            </xpath>
+
+            <!-- 3. Fix the Status Bar Order -->
+            <xpath expr="//field[@name='state'][@statusbar_visible='draft,submit,approve,post,done']" position="replace">
+                <!-- When Manager Approval is Enabled -->
+                <field name="state" widget="statusbar"
+                       statusbar_visible="draft,submit,approve,manager_approved,post,done"
+                       invisible="state == 'cancel' or not manager_approval_enabled"
+                       force_save="1"/>
+
+                <!-- When Manager Approval is Disabled -->
+                <field name="state" widget="statusbar"
+                       statusbar_visible="draft,submit,approve,post,done"
+                       invisible="state == 'cancel' or manager_approval_enabled"
+                       force_save="1"/>
+            </xpath>
+
+            <!-- 4. Add Manager Approve Button -->
+            <xpath expr="//button[@name='action_approve_expense_sheets']" position="after">
+                <!-- UPDATED: Added 'or not is_manager_approver' to hide it from standard users -->
+                <button name="action_manager_approve"
+                        string="Manager Approve"
+                        type="object"
+                        class="oe_highlight o_expense_sheet_approve"
+                        invisible="state != 'approve' or not manager_approval_enabled or not is_manager_approver"/>
+            </xpath>
+
+            <!-- 5. Fix 'Post Journal Entries' Button Visibility -->
+            <xpath expr="//button[@name='action_sheet_move_post']" position="attributes">
+                <attribute name="invisible">(manager_approval_enabled and state != 'manager_approved') or (not manager_approval_enabled and state != 'approve')</attribute>
+            </xpath>
+
         </field>
     </record>
 </odoo>
