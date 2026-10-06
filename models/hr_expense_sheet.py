@@ -109,3 +109,32 @@ class HrExpenseSheet(models.Model):
 
         self.activity_update()
         return True
+
+    def action_approve_expense_sheets(self):
+        custom_sheets = self.filtered(lambda s: s.manager_approval_enabled)
+        standard_sheets = self - custom_sheets
+
+        # Standard flow (If boolean is disabled, run Odoo normally)
+        if standard_sheets:
+            super(HrExpenseSheet, standard_sheets).action_approve_expense_sheets()
+
+        # Custom flow (First Approval)
+        if custom_sheets:
+            custom_sheets.write({
+                'state': 'approve',
+                'user_id': self.env.user.id,
+            })
+
+            # NEW: Schedule the Activity for the Manager
+            manager_id = self._get_manager_id()
+            if manager_id:
+                for sheet in custom_sheets:
+                    sheet.activity_schedule(
+                        'mail.mail_activity_data_todo',  # Standard To-Do activity type
+                        summary=_("Manager Approval Required"),
+                        note=_(
+                            "It is now awaiting your final approval."),
+                        user_id=manager_id
+                    )
+
+        return True
