@@ -89,11 +89,12 @@ class HrExpenseSheet(models.Model):
             raise UserError(_("Manager Approval is not enabled."))
 
         manager_id = self._get_manager_id()
-        if not manager_id:
+        is_admin = self.env.user.has_group('hr_expense.group_hr_expense_manager')
+
+        if not manager_id and not is_admin:
             raise UserError(_("Please configure the Approval Manager in Expense Settings."))
 
-        # UPDATED: Allow Expense Administrators to bypass the strict manager_id check
-        is_admin = self.env.user.has_group('hr_expense.group_hr_expense_manager')
+        # Allow Expense Administrators to bypass the strict manager_id check
         if self.env.user.id != manager_id and not is_admin:
             raise AccessError(
                 _("Only the configured Approval Manager or an Expense Administrator can approve this expense report."))
@@ -102,9 +103,16 @@ class HrExpenseSheet(models.Model):
             if sheet.state != 'approve':
                 raise UserError(_("Only expense reports waiting for Manager Approval can be approved."))
 
-            sheet.state = 'submit'
-            super(HrExpenseSheet, sheet).action_approve_expense_sheets()
+            # PREVENT DUPLICATES: Check if a journal entry already exists for this record
+            if not sheet.account_move_ids:
+                # Only if no journal entry exists, temporarily set to 'submit' to bypass standard validation
+                sheet.state = 'submit'
+                super(HrExpenseSheet, sheet).action_approve_expense_sheets()
 
+                # Trigger standard journal entry creation
+                sheet.action_sheet_move_post()
+
+            # Move to the final custom state (works for both new and old records)
             sheet.state = 'manager_approved'
 
         self.activity_update()
