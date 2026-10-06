@@ -7,7 +7,7 @@
         <field name="arch" type="xml">
             <!-- Corrected spelling: employee_journal_id -->
             <xpath expr="//field[@name='employee_journal_id']" position="attributes">
-                <attribute name="domain">[('type', 'in', ['purchase', 'general'])]</attribute>
+                <attribute name="domain">[('type', 'in', ['general'])]</attribute>
             </xpath>
         </field>
     </record>
