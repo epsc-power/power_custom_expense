@@ -1,7 +1,6 @@
 # -*- coding: utf-8 -*-
 from odoo import models, api
 
-
 class HrExpenseSheet(models.Model):
     _inherit = 'hr.expense.sheet'
 
@@ -20,5 +19,4 @@ class HrExpenseSheet(models.Model):
 
             if misc_journal:
                 res['employee_journal_id'] = misc_journal.id
-
         return res
