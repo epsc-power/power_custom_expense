@@ -9,12 +9,17 @@
             <xpath expr="//app[@name='hr_expense']" position="inside">
                 <block title="Manager Approval Flow" id="power_custom_approval_settings_expense">
                     <setting id="manager_approval_setting_expense"
-                             string="Enable Manager Approval"
+                             string="Enable Multiple Manager Approval"
                              help="Require a manager to approve expenses">
                         <field name="manager_approval"/>
                         <div class="content-group" invisible="not manager_approval">
+                            <!-- Sub Manager (First Step Fallback) -->
                             <div class="mt16">
-                                <label for="manager_id" string="Select Manager" class="o_light_label"/>
+                                <label for="sub_manager_id" string="Select Fallback Sub-Manager" class="o_light_label"/>
+                                <field name="sub_manager_id" class="oe_inline"/>
+                            </div>
+                            <div class="mt16">
+                                <label for="manager_id" string="Select Finance Manager" class="o_light_label"/>
                                 <field name="manager_id" class="oe_inline"/>
                             </div>
                         </div>

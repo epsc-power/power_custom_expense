@@ -28,6 +28,21 @@ class HrExpenseSheet(models.Model):
         },
     )
 
+    def action_submit_sheet(self):
+        for sheet in self:
+            if sheet.manager_approval_enabled:
+
+                # Fetch the Sub-Manager from settings
+                sub_manager_id_str = self.env['ir.config_parameter'].sudo().get_param(
+                    'power_custom_expense.sub_manager_id')
+                sub_manager_id = int(sub_manager_id_str) if sub_manager_id_str else False
+
+                # If the employee has NO manager, assign the Sub-Manager to get the first notification & button
+                if sub_manager_id and not sheet.user_id:
+                    sheet.user_id = sub_manager_id
+
+        # Trigger standard Odoo submit (This sends the email to user_id and makes the first 'Approve' button visible to them)
+        return super(HrExpenseSheet, self).action_submit_sheet()
     @api.depends_context('uid')
     def _compute_manager_approval_enabled(self):
         enabled = self.env['ir.config_parameter'].sudo().get_param(
