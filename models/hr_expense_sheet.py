@@ -2,28 +2,30 @@
 from odoo import models, fields, api, _
 from odoo.exceptions import UserError, AccessError
 
-
 class HrExpenseSheet(models.Model):
     _inherit = 'hr.expense.sheet'
 
     manager_approval_enabled = fields.Boolean(
         compute='_compute_manager_approval_enabled',
     )
-
-    # NEW: Computed field to determine if the current user can see the button
     is_manager_approver = fields.Boolean(
         compute='_compute_is_manager_approver',
+    )
+    is_sub_manager_approver = fields.Boolean(
+        compute='_compute_is_sub_manager_approver',
     )
 
     state = fields.Selection(
         selection_add=[
             ('approve', 'Employee Manager Approved'),
-            ('manager_approved', 'Manager Approved'),
+            ('sub_manager_approved', 'Manager Approved'),
+            ('manager_approved', 'Finance Manager Approved'),
             ('post', 'Posted'),
             ('done', 'Done'),
             ('cancel', 'Refused'),
         ],
         ondelete={
+            'sub_manager_approved': 'set default',
             'manager_approved': 'set default',
         },
     )
@@ -31,40 +33,37 @@ class HrExpenseSheet(models.Model):
     def action_submit_sheet(self):
         for sheet in self:
             if sheet.manager_approval_enabled:
-
-                # Fetch the Sub-Manager from settings
-                sub_manager_id_str = self.env['ir.config_parameter'].sudo().get_param(
-                    'power_custom_expense.sub_manager_id')
+                sub_manager_id_str = self.env['ir.config_parameter'].sudo().get_param('power_custom_expense.sub_manager_id')
                 sub_manager_id = int(sub_manager_id_str) if sub_manager_id_str else False
 
-                # If the employee has NO manager, assign the Sub-Manager to get the first notification & button
                 if sub_manager_id and not sheet.user_id:
                     sheet.user_id = sub_manager_id
 
-        # Trigger standard Odoo submit (This sends the email to user_id and makes the first 'Approve' button visible to them)
         return super(HrExpenseSheet, self).action_submit_sheet()
+
     @api.depends_context('uid')
     def _compute_manager_approval_enabled(self):
-        enabled = self.env['ir.config_parameter'].sudo().get_param(
-            'power_custom_expense.manager_approval'
-        ) == 'True'
+        enabled = self.env['ir.config_parameter'].sudo().get_param('power_custom_expense.manager_approval') == 'True'
         for sheet in self:
             sheet.manager_approval_enabled = enabled
 
-    # NEW: Compute method for button visibility
     @api.depends_context('uid')
     def _compute_is_manager_approver(self):
-        manager_id_str = self.env['ir.config_parameter'].sudo().get_param(
-            'power_custom_expense.manager_id'
-        )
+        manager_id_str = self.env['ir.config_parameter'].sudo().get_param('power_custom_expense.manager_id')
         manager_id = int(manager_id_str) if manager_id_str else False
-
-        # Check if user is the designated manager OR an Expense Administrator
         is_designated = (self.env.user.id == manager_id)
         is_admin = self.env.user.has_group('hr_expense.group_hr_expense_manager')
-
         for sheet in self:
             sheet.is_manager_approver = is_designated or is_admin
+
+    @api.depends_context('uid')
+    def _compute_is_sub_manager_approver(self):
+        sub_manager_id_str = self.env['ir.config_parameter'].sudo().get_param('power_custom_expense.sub_manager_id')
+        sub_manager_id = int(sub_manager_id_str) if sub_manager_id_str else False
+        is_designated = (self.env.user.id == sub_manager_id)
+        is_admin = self.env.user.has_group('hr_expense.group_hr_expense_manager')
+        for sheet in self:
+            sheet.is_sub_manager_approver = is_designated or is_admin
 
     @api.model
     def default_get(self, fields_list):
@@ -80,11 +79,14 @@ class HrExpenseSheet(models.Model):
         return res
 
     def _get_manager_id(self):
-        manager_id = self.env['ir.config_parameter'].sudo().get_param(
-            'power_custom_expense.manager_id'
-        )
+        manager_id = self.env['ir.config_parameter'].sudo().get_param('power_custom_expense.manager_id')
         return int(manager_id) if manager_id else False
 
+    def _get_sub_manager_id(self):
+        sub_manager_id = self.env['ir.config_parameter'].sudo().get_param('power_custom_expense.sub_manager_id')
+        return int(sub_manager_id) if sub_manager_id else False
+
+    # TIER 1: Employee Manager Approval
     def action_approve_expense_sheets(self):
         custom_sheets = self.filtered(lambda s: s.manager_approval_enabled)
         standard_sheets = self - custom_sheets
@@ -97,8 +99,52 @@ class HrExpenseSheet(models.Model):
                 'state': 'approve',
                 'user_id': self.env.user.id,
             })
+            # Send Activity to First Approver (Sub Manager)
+            sub_manager_id = self._get_sub_manager_id()
+            if sub_manager_id:
+                for sheet in custom_sheets:
+                    sheet.activity_schedule(
+                        'mail.mail_activity_data_todo',
+                        summary=_("Manager Approval Required"),
+                        note=_("Awaiting Manager (First Approver) sign-off."),
+                        user_id=sub_manager_id
+                    )
         return True
 
+    # TIER 2: First Approver (Sub Manager)
+    def action_sub_manager_approve(self):
+        if not self.manager_approval_enabled:
+            raise UserError(_("Manager Approval is not enabled."))
+
+        sub_manager_id = self._get_sub_manager_id()
+        is_admin = self.env.user.has_group('hr_expense.group_hr_expense_manager')
+
+        if not sub_manager_id and not is_admin:
+            raise UserError(_("Please configure the Manager (First Approver) in Settings."))
+
+        if self.env.user.id != sub_manager_id and not is_admin:
+            raise AccessError(_("Only the Manager (First Approver) or an Admin can approve this stage."))
+
+        for sheet in self:
+            if sheet.state != 'approve':
+                raise UserError(_("Only expense reports waiting for First Approver can be approved."))
+
+            sheet.state = 'sub_manager_approved'
+
+            # Send Activity to Final Finance Manager
+            manager_id = self._get_manager_id()
+            if manager_id:
+                sheet.activity_schedule(
+                    'mail.mail_activity_data_todo',
+                    summary=_("Finance Manager Approval Required"),
+                    note=_("Awaiting final Finance Manager sign-off."),
+                    user_id=manager_id
+                )
+
+        self.activity_update()
+        return True
+
+    # TIER 3: Final Finance Manager
     def action_manager_approve(self):
         if not self.manager_approval_enabled:
             raise UserError(_("Manager Approval is not enabled."))
@@ -107,57 +153,21 @@ class HrExpenseSheet(models.Model):
         is_admin = self.env.user.has_group('hr_expense.group_hr_expense_manager')
 
         if not manager_id and not is_admin:
-            raise UserError(_("Please configure the Approval Manager in Expense Settings."))
+            raise UserError(_("Please configure the Finance Manager in Expense Settings."))
 
-        # Allow Expense Administrators to bypass the strict manager_id check
         if self.env.user.id != manager_id and not is_admin:
-            raise AccessError(
-                _("Only the configured Approval Manager or an Expense Administrator can approve this expense report."))
+            raise AccessError(_("Only the configured Finance Manager or an Expense Administrator can approve this expense report."))
 
         for sheet in self:
-            if sheet.state != 'approve':
-                raise UserError(_("Only expense reports waiting for Manager Approval can be approved."))
+            if sheet.state != 'sub_manager_approved':
+                raise UserError(_("Only expense reports waiting for Finance Manager Approval can be approved."))
 
-            # PREVENT DUPLICATES: Check if a journal entry already exists for this record
+            # SAFETEY CHECK: Only create Journal Entry if it doesn't already exist (fixes issues for old records)
             if not sheet.account_move_ids:
-                # Only if no journal entry exists, temporarily set to 'submit' to bypass standard validation
                 sheet.state = 'submit'
                 super(HrExpenseSheet, sheet).action_approve_expense_sheets()
 
-                # Trigger standard journal entry creation
-                sheet.action_sheet_move_post()
-
-            # Move to the final custom state (works for both new and old records)
             sheet.state = 'manager_approved'
 
         self.activity_update()
-        return True
-
-    def action_approve_expense_sheets(self):
-        custom_sheets = self.filtered(lambda s: s.manager_approval_enabled)
-        standard_sheets = self - custom_sheets
-
-        # Standard flow (If boolean is disabled, run Odoo normally)
-        if standard_sheets:
-            super(HrExpenseSheet, standard_sheets).action_approve_expense_sheets()
-
-        # Custom flow (First Approval)
-        if custom_sheets:
-            custom_sheets.write({
-                'state': 'approve',
-                'user_id': self.env.user.id,
-            })
-
-            # NEW: Schedule the Activity for the Manager
-            manager_id = self._get_manager_id()
-            if manager_id:
-                for sheet in custom_sheets:
-                    sheet.activity_schedule(
-                        'mail.mail_activity_data_todo',  # Standard To-Do activity type
-                        summary=_("Manager Approval Required"),
-                        note=_(
-                            "It is now awaiting your final approval."),
-                        user_id=manager_id
-                    )
-
         return True
